@@ -1,4 +1,10 @@
-# GraphRAG 开发说明
+# GraphRAG
+
+面向本地文档问答的多模态 RAG 实验项目，结合 OCR、Milvus 检索与 LangGraph 工作流，探索文本和图片共同参与的知识库问答。
+
+**项目状态：本地单用户原型。** 当前适合学习、调试与流程实验，不提供多用户认证，也不作为公网服务部署方案。
+
+[开始使用](#开始使用) · [目录结构](#目录结构) · [参与贡献](CONTRIBUTING.md) · [安全说明](SECURITY.md)
 
 ## 项目定位
 
@@ -29,9 +35,11 @@
 ├── utils/                  # 配置、日志、图片编码和通用辅助函数
 ├── llm.py                  # 大模型客户端封装
 ├── embeding.py              # 文本嵌入模型封装
-├── font/                   # Vue 3 + Vite 前端
+├── backend/                # FastAPI 聊天接口与 PostgreSQL 会话存储
+├── font/                   # Vue 3 + Vite 前端（沿用现有目录名）
 ├── output/                 # OCR 解析生成的 Markdown、JSON 和图片
-├── readme.txt              # Python 依赖清单
+├── readme.txt              # 现有 Python 依赖清单
+├── .env.example            # 无凭据的环境变量模板
 └── connect_data.py         # Neo4j 实验脚本（不属于主流程）
 ```
 
@@ -71,6 +79,64 @@ PDF/图片
 
 `Workflow.py` 中的核心节点包括输入预处理、工具调用、检索、答案生成、答案评估、人工确认和网络检索。状态字段由 `MultiModalRAGState` 统一维护，条件分支由 `alll_route.py` 决定。
 
+## 开始使用
+
+### 环境准备
+
+准备 Python、Node.js / npm，以及所用流程对应的外部服务：
+
+| 服务 | 用途 |
+| --- | --- |
+| OCR 推理服务 | PDF / 图片版面与内容解析 |
+| 模型与嵌入服务 | 多模态回答、文本向量生成 |
+| Milvus | 文档向量与上下文检索 |
+| PostgreSQL | 工作流检查点与长期记忆 |
+
+仓库含 Python 3.12 的开发痕迹，但尚未建立跨版本验证矩阵。现有 `readme.txt` 也不是完整、经过干净环境验证的依赖锁定文件；以下步骤用于准备开发环境，不保证安装后即可直接运行全部入口。
+
+```powershell
+git clone https://github.com/1278770517/RAG-graph.git
+cd RAG-graph
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r readme.txt
+```
+
+Linux / macOS 激活虚拟环境时使用 `source .venv/bin/activate`。
+
+### 本地配置
+
+首次配置时，将 `.env.example` 复制为 `.env`，填写实际使用的服务地址和密钥；已有 `.env` 时不要覆盖。模板中的 `QWEN_URl` 拼写与当前 `util.py` 保持一致，最后一个字符是小写字母 `l`。
+
+当前配置尚未完全统一：部分数据库连接和模型配置仍写在源码中，`.env` 不能覆盖所有配置。请结合 [安全说明](SECURITY.md) 核对本地环境，避免将个人资料或真实密钥提交到仓库。
+
+### 运行入口
+
+| 入口 | 作用与当前状态 |
+| --- | --- |
+| `mian.py` | Gradio PDF/OCR 界面，准备好 OCR 配置后通过 `python mian.py` 启动 |
+| `workflow/Workflow.py` | Gradio 问答流程实现；当前界面 `launch` 调用被注释，不能视为完整启动命令 |
+| `workflow/Workflow1.py` | 另一套工作流实现，也是 FastAPI 后端引用的模块 |
+| `backend/main.py` | FastAPI 聊天 API；当前存在包导入路径等集成待整理项 |
+| `font/` | Vue 前端，开发代理将 `/api` 转发至本机 `8000` 端口 |
+
+前端开发命令：
+
+```powershell
+cd font
+npm ci
+npm run dev
+```
+
+前端构建使用 `npm run build`。前端页面启动不代表后端和模型服务已就绪。
+
+### 当前限制
+
+- 尚未提供一键安装、容器部署或完整自动化测试流程。
+- 后端没有登录和会话归属校验，仅适用于可信本机单用户。
+- 部分路径、服务地址与凭据仍需后续代码整理；本轮文档规范化没有修复这些实现问题。
+- `.gitignore` 只影响尚未被跟踪的文件；历史已跟踪的依赖、凭据和运行产物仍需单独清理。
+
 ## 开发注意事项
 
 - Python 依赖记录在 `readme.txt`；前端依赖与命令位于 `font/package.json`。
@@ -78,7 +144,13 @@ PDF/图片
 - `utils/env_utils.py` 和 `util.py` 会从环境变量读取模型服务配置。建议提供本地 `.env` 文件，并将其加入 `.gitignore`。
 - 文档集合的稠密向量维度定义为 1024；替换嵌入模型时，需同步检查集合 schema、索引和检索逻辑。
 - OCR 输出默认落在 `output/`。该目录可能快速增长，建议将样例输出与运行时产物分开管理。
-- `mian.py` 是 PDF 解析界面入口，`workflow/Workflow.py` 是 Gradio 问答入口；Vue 前端的 API 路由需由独立后端实现或代理提供。
+- `mian.py` 是 PDF 解析界面入口，`workflow/Workflow.py` 包含 Gradio 问答实现；Vue 前端对应的 API 已位于 `backend/main.py`，前后端集成仍需核对。
 - 代码中存在实验性分支和不同版本的工作流实现（如 `Workflow1.py`）。修改主流程前，先确认实际使用的入口和工作流文件。
 - 不要将 `connect_data.py`、`write_to_neo4j.py` 等 Neo4j 练习脚本纳入部署、依赖安装或主流程说明。
+
+## 贡献与许可
+
+问题报告与改动说明见 [CONTRIBUTING.md](CONTRIBUTING.md)，使用边界与敏感信息处理见 [SECURITY.md](SECURITY.md)。
+
+项目暂未选择开源许可证。仓库公开可见不代表已授予开源许可；第三方依赖和引用代码仍遵循各自的许可条款。
 
